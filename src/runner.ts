@@ -256,6 +256,33 @@ export async function runAgent<TOutput = string>(
           }
 
           // Case A2: Regular Tool Call
+          // Check Tool Guardrails
+          let toolGuardrailBlocked = false;
+          for (const guardrail of currentAgent.toolGuardrails) {
+            const guardResult = await guardrail(toolCall, {
+              agentName: currentAgent.name,
+              runId,
+            });
+            if (!guardResult.pass) {
+              const errorResult: ToolResult = {
+                toolCallId: toolCall.id,
+                name: toolCall.name,
+                result: `Tool guardrail blocked: ${guardResult.reason ?? "Denied by tool guardrail"}`,
+                isError: true,
+              };
+              messages.push({
+                role: "tool",
+                content: JSON.stringify(errorResult),
+                toolResult: errorResult,
+              });
+              toolGuardrailBlocked = true;
+              break;
+            }
+          }
+          if (toolGuardrailBlocked) {
+            continue;
+          }
+
           // Check tool approval if required
           if (matchingTool.requiresApproval) {
             let approved = false;
