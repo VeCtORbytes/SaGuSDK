@@ -1,0 +1,47 @@
+{
+  "name": "sagu-sdk",
+  "version": "0.1.0",
+  "description": "An open-source, vendor-agnostic TypeScript SDK for building tool-using, multi-agent LLM applications.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "multi-agent",
+    "tools",
+    "guardrails",
+    "memory",
+    "neo4j",
+    "typescript"
+  ],
+  "author": "Sarthak Gupta",
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "neo4j-driver": "^5.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3"
+  }
+}
