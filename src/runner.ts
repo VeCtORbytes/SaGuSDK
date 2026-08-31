@@ -19,6 +19,8 @@ import {
   buildCombinedToolSpecs,
   isHandoffToolName,
 } from "./handoff.ts";
+import { zodToJsonSchema } from "./providers/schema.ts";
+import { parseStructuredOutput } from "./structuredOutput.ts";
 
 /**
  * Execute a timeout-wrapped promise.
@@ -43,7 +45,7 @@ async function withTimeout<T>(
 }
 
 /**
- * Executes an agent run to completion, supporting multi-turn tools and handoffs.
+ * Executes an agent run to completion, supporting multi-turn tools, handoffs, guardrails, and structured output repair.
  */
 export async function runAgent<TOutput = string>(
   agent: Agent<TOutput>,
@@ -54,8 +56,10 @@ export async function runAgent<TOutput = string>(
   let currentAgent: Agent<any> = agent;
   const maxTurns = options.maxTurns ?? agent.maxTurns ?? 10;
   const maxHandoffs = options.maxHandoffs ?? agent.maxHandoffs ?? 5;
+  const maxRepairAttempts = agent.maxRepairAttempts ?? 2;
   let turn = 0;
   let handoffCount = 0;
+  let repairAttempts = 0;
   const totalUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
   const messages: Message[] = [];
 
@@ -121,7 +125,7 @@ export async function runAgent<TOutput = string>(
       }
 
       // Resolve system instructions for active agent
-      const systemPrompt =
+      let systemPrompt =
         typeof currentAgent.instructions === "function"
           ? await currentAgent.instructions({
               runId,
@@ -130,6 +134,17 @@ export async function runAgent<TOutput = string>(
               turn,
             })
           : currentAgent.instructions;
+
+      // If agent has structured output schema, augment instructions with schema
+      let outputSchemaJson: Record<string, unknown> | undefined;
+      if (currentAgent.outputSchema) {
+        outputSchemaJson = zodToJsonSchema(currentAgent.outputSchema);
+        systemPrompt += `\n\n[STRUCTURED OUTPUT REQUIREMENT]\nYou MUST respond with ONLY a valid JSON object matching this schema:\n${JSON.stringify(
+          outputSchemaJson,
+          null,
+          2
+        )}`;
+      }
 
       // Compile tool specs (regular tools + synthetic handoff tools)
       const { toolSpecs, allTools } = buildCombinedToolSpecs(currentAgent);
@@ -149,6 +164,7 @@ export async function runAgent<TOutput = string>(
         systemPrompt,
         tools: toolSpecs.length > 0 ? toolSpecs : undefined,
         temperature: currentAgent.temperature,
+        outputSchema: outputSchemaJson,
         abortSignal: options.signal,
       });
 
@@ -369,8 +385,46 @@ export async function runAgent<TOutput = string>(
         continue;
       }
 
-      // Case B: Model returned plain text answer (final turn)
+      // Case B: Model returned plain text answer (final turn or schema candidate)
       const rawText = response.content ?? "";
+
+      // Check Structured Output if schema configured
+      let parsedOutput: any = rawText;
+      if (currentAgent.outputSchema) {
+        const parseResult = parseStructuredOutput(
+          rawText,
+          currentAgent.outputSchema,
+          repairAttempts + 1
+        );
+
+        if (!parseResult.success) {
+          if (repairAttempts < maxRepairAttempts) {
+            repairAttempts++;
+            messages.push({
+              role: "assistant",
+              content: rawText,
+            });
+            messages.push({
+              role: "user",
+              content: parseResult.repairPrompt,
+            });
+            // Continue loop for repair retry
+            continue;
+          }
+
+          // Repair attempts exhausted
+          return {
+            success: false,
+            error: parseResult.error,
+            messages,
+            usage: totalUsage,
+            agentName: currentAgent.name,
+            turns: turn,
+          };
+        }
+
+        parsedOutput = parseResult.data;
+      }
 
       // Output Guardrails
       let sanitizedOutput = rawText;
@@ -407,9 +461,13 @@ export async function runAgent<TOutput = string>(
         await options.sessionStore.appendMessages(options.sessionId, newMessages);
       }
 
+      const finalOutput = currentAgent.outputSchema
+        ? (parsedOutput as TOutput)
+        : (sanitizedOutput as unknown as TOutput);
+
       return {
         success: true,
-        output: sanitizedOutput as unknown as TOutput,
+        output: finalOutput,
         messages,
         usage: totalUsage,
         agentName: currentAgent.name,
