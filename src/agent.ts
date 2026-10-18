@@ -9,6 +9,7 @@ import type {
   RunResult,
   Tool,
 } from "./types.ts";
+import type { AgentEvent } from "./events.ts";
 import { ConfigurationError } from "./errors.ts";
 import { runAgent, streamAgent } from "./runner.ts";
 
@@ -89,7 +90,7 @@ export class Agent<TOutput = string> {
   async *stream(
     input: string,
     options: RunOptions = {}
-  ) {
+  ): AsyncGenerator<AgentEvent<TOutput>, void, unknown> {
     yield* streamAgent<TOutput>(this, input, options);
   }
 }
