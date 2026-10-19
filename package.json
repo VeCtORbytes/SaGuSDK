@@ -1,6 +1,6 @@
 {
   "name": "sagu-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An open-source, vendor-agnostic TypeScript SDK for building tool-using, multi-agent LLM applications.",
   "type": "module",
   "main": "dist/index.js",
