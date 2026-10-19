@@ -67,6 +67,37 @@ export {
 export { Neo4jGraphMemoryStore } from "./memory/neo4jGraphMemory.ts";
 export type { Neo4jGraphMemoryOptions } from "./memory/neo4jGraphMemory.ts";
 export { createGraphMemoryTools } from "./memory/graphMemoryTools.ts";
+export { LongTermMemory } from "./memory/longTermMemory.ts";
+export type { LongTermMemoryOptions, RetrievedContext } from "./memory/longTermMemory.ts";
+export {
+  GraphProcess,
+  FactExtractor,
+  RelationshipBuilder,
+  GraphMaintainer,
+  DEFAULT_INFERENCE_RULES,
+  DEFAULT_SYMMETRIC_PREDICATES,
+  DEFAULT_SINGLE_VALUED_PREDICATES,
+} from "./memory/graphProcesses.ts";
+export type {
+  GraphProcessName,
+  GraphProcessOptions,
+  ProcessContext,
+  GraphUpdate,
+  GraphEvent,
+  GraphEventListener,
+  ConversationInput,
+  FactExtractorOptions,
+  InferenceRule,
+  RelationshipBuilderOptions,
+  GraphMaintainerOptions,
+} from "./memory/graphProcesses.ts";
+export {
+  normalizeEntity,
+  normalizePredicate,
+  entityKey,
+  effectiveConfidence,
+  reinforceConfidence,
+} from "./memory/facts.ts";
 
 // Streaming Events
 export {
@@ -77,6 +108,7 @@ export {
   isGuardrailTriggered,
   isRunCompleted,
   isRunFailed,
+  isMemoryUpdated,
 } from "./events.ts";
 export type { AgentEvent } from "./events.ts";
 
@@ -136,6 +168,8 @@ export type {
   GraphMemoryEntry,
   GraphMemoryQuery,
   GraphMemoryStore,
+  FactKey,
+  LongTermMemoryHook,
   TraceSpan,
   Trace,
   TraceExporter,

@@ -24,7 +24,7 @@ export function createGraphMemoryTools(store: GraphMemoryStore): Tool[] {
         .describe("The target value, entity, or attribute (e.g., 'TypeScript', 'Seattle', 'Postgres 16')"),
     }),
     execute: async ({ subject, predicate, object }) => {
-      await store.remember({ subject, predicate, object });
+      await store.remember({ subject, predicate, object, source: "tool:remember_fact" });
       return {
         stored: true,
         fact: `${subject} ${predicate} ${object}`,

@@ -1,51 +1,48 @@
-import type { GraphMemoryEntry, GraphMemoryQuery, GraphMemoryStore } from "./types.ts";
+import type { FactKey, GraphMemoryEntry, GraphMemoryQuery, GraphMemoryStore } from "./types.ts";
+import { factId } from "./facts.ts";
 
 /**
- * In-Memory fake Graph Memory store.
+ * In-memory Graph Memory store.
  * Implements the full GraphMemoryStore interface with zero external dependencies.
- * Default in all unit tests and local runs.
+ * Facts live in process memory only and are lost on restart.
  */
 export class InMemoryGraphMemoryStore implements GraphMemoryStore {
-  private entries: GraphMemoryEntry[] = [];
+  private facts = new Map<string, GraphMemoryEntry>();
 
   async remember(entry: GraphMemoryEntry): Promise<void> {
     const subject = entry.subject.trim();
     const predicate = entry.predicate.trim();
     const object = entry.object.trim();
+    const id = factId({ subject, predicate, object });
+    const existing = this.facts.get(id);
+    const now = Date.now();
 
-    // Deduplicate identical triplet
-    const existingIndex = this.entries.findIndex(
-      (e) =>
-        e.subject.toLowerCase() === subject.toLowerCase() &&
-        e.predicate.toLowerCase() === predicate.toLowerCase() &&
-        e.object.toLowerCase() === object.toLowerCase()
-    );
-
-    const newEntry: GraphMemoryEntry = {
+    this.facts.set(id, {
+      ...existing,
       subject,
       predicate,
       object,
-      metadata: entry.metadata ? { ...entry.metadata } : undefined,
-    };
-
-    if (existingIndex !== -1) {
-      this.entries[existingIndex] = newEntry;
-    } else {
-      this.entries.push(newEntry);
-    }
+      confidence: entry.confidence ?? existing?.confidence ?? 1,
+      mentions: (existing?.mentions ?? 0) + 1,
+      source: entry.source ?? existing?.source,
+      createdAt: existing?.createdAt ?? entry.createdAt ?? now,
+      updatedAt: entry.updatedAt ?? now,
+      metadata: entry.metadata ? { ...entry.metadata } : existing?.metadata,
+    });
   }
 
   async recall(query: GraphMemoryQuery): Promise<GraphMemoryEntry[]> {
     const aboutLower = query.about.toLowerCase().trim();
     const limit = query.limit ?? 10;
+    const all = [...this.facts.values()];
 
     if (!aboutLower) {
-      return this.entries.slice(0, limit);
+      return all.slice(0, limit).map(copy);
     }
 
     const tokens = aboutLower.split(/\s+/).filter(Boolean);
 
-    const matches = this.entries.filter((entry) => {
+    const matches = all.filter((entry) => {
       const subject = entry.subject.toLowerCase();
       const predicate = entry.predicate.toLowerCase();
       const object = entry.object.toLowerCase();
@@ -58,7 +55,50 @@ export class InMemoryGraphMemoryStore implements GraphMemoryStore {
       );
     });
 
-    return matches.slice(0, limit);
+    return matches.slice(0, limit).map(copy);
+  }
+
+  async listFacts(): Promise<GraphMemoryEntry[]> {
+    return [...this.facts.values()].map(copy);
+  }
+
+  async forget(key: FactKey): Promise<void> {
+    this.facts.delete(factId(key));
+  }
+
+  /** Renames the exact entity name `from` to `into` across all facts. */
+  async mergeEntities(from: string, into: string): Promise<void> {
+    const source = from.trim();
+    const target = into.trim();
+    if (source === target) return;
+
+    for (const [id, fact] of [...this.facts]) {
+      const subjectHit = fact.subject === source;
+      const objectHit = fact.object === source;
+      if (!subjectHit && !objectHit) continue;
+
+      this.facts.delete(id);
+      const moved: GraphMemoryEntry = {
+        ...fact,
+        subject: subjectHit ? target : fact.subject,
+        object: objectHit ? target : fact.object,
+      };
+      if (moved.subject.toLowerCase() === moved.object.toLowerCase()) continue; // merging made a self-loop
+
+      const existing = this.facts.get(factId(moved));
+      this.facts.set(
+        factId(moved),
+        existing
+          ? {
+              ...existing,
+              confidence: Math.max(existing.confidence ?? 1, moved.confidence ?? 1),
+              mentions: (existing.mentions ?? 1) + (moved.mentions ?? 1),
+              createdAt: Math.min(existing.createdAt ?? Infinity, moved.createdAt ?? Infinity),
+              updatedAt: Math.max(existing.updatedAt ?? 0, moved.updatedAt ?? 0),
+            }
+          : moved
+      );
+    }
   }
 
   async close(): Promise<void> {
@@ -66,8 +106,12 @@ export class InMemoryGraphMemoryStore implements GraphMemoryStore {
   }
 
   get allEntries(): GraphMemoryEntry[] {
-    return [...this.entries];
+    return [...this.facts.values()].map(copy);
   }
+}
+
+function copy(entry: GraphMemoryEntry): GraphMemoryEntry {
+  return { ...entry, metadata: entry.metadata ? { ...entry.metadata } : undefined };
 }
 
 /**

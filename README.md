@@ -25,7 +25,7 @@ Existing agent frameworks often hide the core execution loop beneath layers of a
 - 🛡️ **Predictable Return vs. Throw Policy:** `agent.run()` **never throws on expected runtime outcomes** (guardrail blocks, tool approval denials, max turns, schema repair exhaustion, provider timeouts). It returns `{ success: true, output, ... }` or `{ success: false, error, ... }`, eliminating messy `try/catch` wrappers.
 - ⚡ **Native TypeScript Execution:** Zero build step required during development. Runs `.ts` files directly in Node 25 with stdlib `node --test` and `node:assert`.
 - 🗄️ **Zero-Dependency SQLite Sessions:** Fast conversation history persistence using Node 25's built-in `node:sqlite` (`SqliteSession`) without native C++ compilation or external packages.
-- 🕸️ **Semantic Graph Long-Term Memory:** Goes beyond flat message logs to store entities, facts, and relationships `(subject -> predicate -> object)` with pluggable Neo4j (`neo4j-driver`) and in-memory stores.
+- 🕸️ **Self-Maintaining Graph Memory:** Stores entities, facts and relationships `(subject -> predicate -> object)` in Neo4j or in memory, kept up to date by **three background processes**: an LLM fact extractor, a relationship builder, and a graph maintainer (dedupe, conflict resolution, decay and pruning). Agents get relevant facts injected automatically.
 - 🔄 **Multi-Provider & Fallback Engine:** Native adapters for **Claude (Anthropic)**, **OpenAI**, and **Google Gemini**, plus deterministic **scriptable mock testing** and automatic failover with `fallback()`.
 - 🔍 **Built-in Tracing & Secret Redaction:** Emits hierarchical execution span trees while automatically redacting API keys (`sk-...`, `AIza...`), Bearer tokens, and sensitive environment variables.
 
@@ -49,6 +49,7 @@ graph TD
     subgraph Layer 3: Session & Graph Memory
         F[SessionStore] -->|Persists across runs| G[SQLite, File, InMemory]
         H[GraphMemoryStore] -->|Semantic Long-Term Facts| I[Neo4j, InMemoryGraph]
+        J[3 background processes] -->|extract, link, maintain| H
     end
 
     B -.-> C
@@ -225,7 +226,35 @@ for await (const event of agent.stream("Explain quantum computing")) {
 }
 ```
 
-### 5. Multi-Provider Fallback Engine
+### 5. Long-Term Memory with Background Graph Processes
+Pass a `LongTermMemory` to any run. Relevant facts are added to the system prompt, and the finished conversation is queued for extraction. The run never waits for it. Three independent processes keep the graph clean:
+
+| Process | Job | Changes it makes |
+|---|---|---|
+| `FactExtractor` | An LLM reads queued conversations and proposes facts | `fact_added`, `fact_reinforced` (noisy-OR confidence, mention count) |
+| `RelationshipBuilder` | Infers edges from existing facts | `relationship_inferred` (symmetric predicates, chain rules like WORKS_ON + USES ⇒ USES) |
+| `GraphMaintainer` | Keeps the graph trustworthy | `entities_merged`, `conflict_resolved`, `fact_pruned` (time-decayed confidence) |
+
+```typescript
+import { Agent, LongTermMemory, Neo4jGraphMemoryStore, anthropic } from "sagu-sdk";
+
+const memory = new LongTermMemory({
+  store: new Neo4jGraphMemoryStore({ uri: "bolt://localhost:7687" }),
+  model: anthropic(), // used by the fact extractor
+});
+memory.on((event) => console.log(event)); // graph_updated, process_completed, process_failed
+memory.start();
+
+await agent.run("I moved to Berlin and I'm now working on Atlas.", { longTermMemory: memory });
+// later, any agent, any session:
+await agent.run("Plan my next sprint.", { longTermMemory: memory }); // prompt includes the facts
+
+await memory.stop();
+```
+
+Each process runs on its own timer, never overlaps itself, retries transient errors, and exports a trace per pass. Run `node examples/05-background-graph-memory/index.ts` to watch it live.
+
+### 6. Multi-Provider Fallback Engine
 Switch providers automatically when rate limits or service outages occur:
 
 ```typescript
@@ -276,21 +305,25 @@ sagu-sdk/
 │       ├── sqlite.ts          # Zero-dependency node:sqlite session storage
 │       ├── graphMemory.ts     # InMemoryGraphMemoryStore fake & auto-factory
 │       ├── neo4jGraphMemory.ts# Neo4j Cypher knowledge graph adapter
-│       └── graphMemoryTools.ts# remember_fact & recall_facts tool factory
+│       ├── graphMemoryTools.ts# remember_fact & recall_facts tool factory
+│       ├── facts.ts           # Normalization, confidence reinforcement & decay
+│       ├── graphProcesses.ts  # FactExtractor, RelationshipBuilder, GraphMaintainer
+│       └── longTermMemory.ts  # Coordinates the 3 processes + retrieval for agents
 ├── examples/
 │   ├── 01-basic-tool-agent/
 │   ├── 02-support-triage-handoff/
 │   ├── 03-structured-output-and-memory/
-│   └── 04-graph-memory-longterm-recall/
-├── docs/                      # GitHub Pages documentation site
-└── test/                      # 73 unit tests running via node --test
+│   ├── 04-graph-memory-longterm-recall/
+│   └── 05-background-graph-memory/
+├── docs/                      # Original Markdown docs (full site: github.com/VeCtORbytes/SaGuDocs)
+└── test/                      # 88 tests running via node --test
 ```
 
 ---
 
 ## 🧪 Testing
 
-SAGU includes **73 unit tests** that run natively without external mock servers or API keys:
+SAGU includes **88 tests** that run natively without external mock servers or API keys. One Neo4j integration test runs when `NEO4J_URI` is set:
 
 ```bash
 # Run all tests
@@ -304,6 +337,10 @@ node examples/01-basic-tool-agent/index.ts
 node examples/02-support-triage-handoff/index.ts
 node examples/03-structured-output-and-memory/index.ts
 node examples/04-graph-memory-longterm-recall/index.ts
+node examples/05-background-graph-memory/index.ts
+
+# Neo4j integration test (needs a running Neo4j)
+NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=... node --test test/neo4j.integration.test.ts
 ```
 
 ---
@@ -317,11 +354,13 @@ node examples/04-graph-memory-longterm-recall/index.ts
 | **Handoffs** | 10 | `src/handoff.ts`, synthetic transfer tools, hop-count cap, context preservation |
 | **Guardrails** | 10 | `src/guardrails.ts`, 3-tier validation, auto-rejecting human approval handler |
 | **Memory & Sessions** | 10 | `src/memory/` adapters (`node:sqlite`, file, in-memory) + semantic Neo4j Graph Memory |
+| **Graph Database Integration** | 10 | `src/memory/neo4jGraphMemory.ts`: entities, typed relations with confidence/mentions/source/timestamps; context retrieval injected into prompts |
+| **Three Background Graph Processes** | 15 | `src/memory/graphProcesses.ts`: `FactExtractor`, `RelationshipBuilder`, `GraphMaintainer` on independent timers with retries, events and traces |
 | **Structured Output & Streaming** | 10 | `src/structuredOutput.ts` (auto-repair loop), `src/events.ts` (real-time streaming) |
 | **Reliability** | 10 | `src/reliability.ts` (`withRetry` jitter backoff, `withTimeout`, automatic secret redaction) |
 | **Tracing** | 5 | `src/trace.ts` (hierarchical span tree, `ConsoleExporter`, `JSONFileExporter`) |
 | **Developer Experience** | 10 | Typed generics `Agent<TOutput>`, native Node 25 `.ts` execution, 0 dev build steps |
-| **Documentation & Examples** | 10 | Complete `/docs` site, 4 runnable examples |
+| **Documentation & Examples** | 10 | Hosted docs site ([SaGuDocs](https://github.com/VeCtORbytes/SaGuDocs)), 5 runnable examples |
 | **Product Thinking** | 10 | Clear differentiator: vendor-agnostic fallback, graph memory, return-not-throw |
 
 ---

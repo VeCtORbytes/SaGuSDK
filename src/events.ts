@@ -36,6 +36,11 @@ export type AgentEvent<TOutput = any> =
       toolName?: string;
     }
   | {
+      type: "memory_updated";
+      operation: "context_retrieved" | "session_saved" | "conversation_queued";
+      count: number;
+    }
+  | {
       type: "run_completed";
       output: TOutput;
       messages: Message[];
@@ -97,6 +102,14 @@ export function isGuardrailTriggered(event: AgentEvent): event is {
   toolName?: string;
 } {
   return event.type === "guardrail_triggered";
+}
+
+export function isMemoryUpdated(event: AgentEvent): event is {
+  type: "memory_updated";
+  operation: "context_retrieved" | "session_saved" | "conversation_queued";
+  count: number;
+} {
+  return event.type === "memory_updated";
 }
 
 export function isRunCompleted<T = any>(

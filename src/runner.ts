@@ -126,6 +126,20 @@ export async function* streamAgent<TOutput = string>(
       }
     }
 
+    // Retrieve long-term memory context (non-fatal: a memory outage must not fail the run)
+    let memoryContext = "";
+    if (options.longTermMemory) {
+      const memorySpanId = traceRecorder.startSpan("memory_read");
+      try {
+        const retrieved = await options.longTermMemory.retrieveContext(sanitizedInput);
+        memoryContext = retrieved.text;
+        traceRecorder.endSpan(memorySpanId, { factCount: retrieved.facts.length });
+        yield { type: "memory_updated", operation: "context_retrieved", count: retrieved.facts.length };
+      } catch (memoryErr) {
+        traceRecorder.endSpan(memorySpanId, undefined, memoryErr);
+      }
+    }
+
     // Append initial user input message
     messages.push({
       role: "user",
@@ -164,6 +178,10 @@ export async function* streamAgent<TOutput = string>(
               turn,
             })
           : currentAgent.instructions;
+
+      if (memoryContext) {
+        systemPrompt += `\n\n[LONG-TERM MEMORY]\nFacts remembered from earlier conversations. Use them when relevant:\n${memoryContext}`;
+      }
 
       // If agent has structured output schema, augment instructions with schema
       let outputSchemaJson: Record<string, unknown> | undefined;
@@ -659,12 +677,26 @@ export async function* streamAgent<TOutput = string>(
         content: sanitizedOutput,
       });
 
+      const newMessages = messages.slice(runStartMessageCount);
+
       // Save messages from this run to SessionStore if configured
       if (options.sessionId && options.sessionStore) {
         const saveSpanId = traceRecorder.startSpan("session_save");
-        const newMessages = messages.slice(runStartMessageCount);
         await options.sessionStore.appendMessages(options.sessionId, newMessages);
         traceRecorder.endSpan(saveSpanId, { savedCount: newMessages.length });
+        yield { type: "memory_updated", operation: "session_saved", count: newMessages.length };
+      }
+
+      // Hand the conversation to background fact extraction (queued, never awaited)
+      if (options.longTermMemory) {
+        const writeSpanId = traceRecorder.startSpan("memory_write");
+        try {
+          options.longTermMemory.ingest(newMessages, { sessionId: options.sessionId });
+          traceRecorder.endSpan(writeSpanId, { queuedMessages: newMessages.length });
+          yield { type: "memory_updated", operation: "conversation_queued", count: newMessages.length };
+        } catch (memoryErr) {
+          traceRecorder.endSpan(writeSpanId, undefined, memoryErr);
+        }
       }
 
       const finalOutput = currentAgent.outputSchema

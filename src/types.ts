@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { SaguError } from "./errors.ts";
+import type { GraphMemoryEntry } from "./memory/types.ts";
 
 /**
  * Message roles supported in the Sagu SDK.
@@ -157,25 +158,14 @@ export interface SessionStore {
 }
 
 /**
- * Long-term Semantic Graph Memory Store interface.
+ * Long-term graph memory types live with the stores.
  */
-export interface GraphMemoryEntry {
-  subject: string;
-  predicate: string;
-  object: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface GraphMemoryQuery {
-  about: string;
-  limit?: number;
-}
-
-export interface GraphMemoryStore {
-  remember(entry: GraphMemoryEntry): Promise<void>;
-  recall(query: GraphMemoryQuery): Promise<GraphMemoryEntry[]>;
-  close(): Promise<void>;
-}
+export type {
+  GraphMemoryEntry,
+  GraphMemoryQuery,
+  GraphMemoryStore,
+  FactKey,
+} from "./memory/types.ts";
 
 /**
  * Tracing definitions.
@@ -214,6 +204,19 @@ export interface RunOptions {
   onApprovalRequired?: (toolCall: ToolCall) => Promise<boolean> | boolean;
   traceExporter?: TraceExporter;
   initialMessages?: Message[];
+  /**
+   * Long-term graph memory. Relevant facts are added to the system prompt before the run,
+   * and the finished conversation is queued for background fact extraction.
+   */
+  longTermMemory?: LongTermMemoryHook;
+}
+
+/**
+ * What the runner needs from long-term memory. Implemented by `LongTermMemory`.
+ */
+export interface LongTermMemoryHook {
+  retrieveContext(input: string): Promise<{ facts: GraphMemoryEntry[]; text: string }>;
+  ingest(messages: Message[], meta?: { sessionId?: string }): void;
 }
 
 /**
