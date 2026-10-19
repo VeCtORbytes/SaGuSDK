@@ -1,10 +1,24 @@
 import { z } from "zod";
+import { ConfigurationError } from "../errors.ts";
 
 /**
  * Converts a Zod schema into a JSON Schema object suitable for LLM tool calling and structured output.
  */
 export function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  assertZod3(schema);
   return parseZodType(schema);
+}
+
+/**
+ * SAGU reads Zod 3 internals. A Zod 4 schema would silently convert to { type: "string" },
+ * so fail loudly instead.
+ */
+export function assertZod3(schema: unknown, where = "schema"): void {
+  if (schema && typeof schema === "object" && "_zod" in schema) {
+    throw new ConfigurationError(
+      `${where} was created with Zod 4, but SAGU requires Zod 3. Install it with: npm install zod@3`
+    );
+  }
 }
 
 function parseZodType(schema: z.ZodTypeAny): Record<string, unknown> {

@@ -6,7 +6,7 @@
 *A small enough agent loop to read in five minutes, that doesn't lock you to one model vendor.*
 
 [![npm version](https://img.shields.io/badge/npm-v0.1.0-blue.svg)](https://www.npmjs.com/package/sagu-sdk)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.13-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-blue.svg)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -67,7 +67,7 @@ graph TD
 
 ### 1. Install
 ```bash
-npm install sagu-sdk zod
+npm install sagu-sdk zod@3
 ```
 
 ### 2. Run a Tool-Using Agent (Zero Network, Zero API Keys)

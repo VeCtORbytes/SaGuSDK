@@ -4,7 +4,11 @@
     "noEmit": false,
     "rootDir": "./src",
     "outDir": "./dist",
-    "rewriteRelativeImportExtensions": true
+    "rewriteRelativeImportExtensions": true,
+    "sourceMap": false,
+    "declarationMap": false
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*"
+  ]
 }

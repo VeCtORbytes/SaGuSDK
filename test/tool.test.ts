@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { z } from "zod";
 import { defineTool } from "../src/tool.ts";
 import { ConfigurationError } from "../src/errors.ts";
+import { Agent } from "../src/agent.ts";
+import { mock } from "../src/providers/mock.ts";
 
 test("defineTool - valid tool definition", async () => {
   const weatherTool = defineTool({
@@ -78,5 +80,17 @@ test("defineTool - validation errors on invalid definition", () => {
         execute: "not_a_function" as any,
       }),
     ConfigurationError
+  );
+});
+
+test("defineTool / Agent - reject Zod 4 schemas with a clear error", () => {
+  const zod4Like = { _zod: {} } as any;
+  assert.throws(
+    () => defineTool({ name: "t", description: "d", input: zod4Like, execute: () => 1 }),
+    (e: any) => e instanceof ConfigurationError && /requires Zod 3/.test(e.message)
+  );
+  assert.throws(
+    () => new Agent({ name: "A", instructions: "i", model: mock([]), outputSchema: zod4Like }),
+    (e: any) => e instanceof ConfigurationError && /npm install zod@3/.test(e.message)
   );
 });

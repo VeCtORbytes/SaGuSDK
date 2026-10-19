@@ -1,4 +1,5 @@
-import { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
+import type { DatabaseSync } from "node:sqlite";
 import type { Message, ToolCall, ToolResult } from "../types.ts";
 import type { SessionStore } from "./types.ts";
 import { MemoryError } from "../errors.ts";
@@ -21,7 +22,9 @@ export class SqliteSession implements SessionStore {
   constructor(options: SqliteSessionOptions = {}) {
     this.filename = options.filename ?? ":memory:";
     try {
-      this.db = new DatabaseSync(this.filename);
+      // Loaded lazily so importing SAGU never triggers node:sqlite (and its ExperimentalWarning on Node 22) unless used.
+      const { DatabaseSync: Database } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+      this.db = new Database(this.filename);
       this.initSchema();
     } catch (err: any) {
       throw new MemoryError("SqliteSession", "constructor", err.message, { filename: this.filename });

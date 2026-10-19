@@ -11,6 +11,7 @@ import type {
 } from "./types.ts";
 import type { AgentEvent } from "./events.ts";
 import { ConfigurationError } from "./errors.ts";
+import { assertZod3 } from "./providers/schema.ts";
 import { runAgent, streamAgent } from "./runner.ts";
 
 /**
@@ -50,6 +51,8 @@ export class Agent<TOutput = string> {
         `Agent '${config.name}' must have a valid 'model' implementing ModelProvider`
       );
     }
+
+    if (config.outputSchema) assertZod3(config.outputSchema, `Agent '${config.name}' outputSchema`);
 
     this.name = config.name.trim();
     this.instructions = config.instructions;

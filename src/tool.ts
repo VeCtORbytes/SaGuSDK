@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import type { Tool, ToolContext } from "./types.ts";
 import { ConfigurationError } from "./errors.ts";
-import { zodToJsonSchema } from "./providers/schema.ts";
+import { assertZod3, zodToJsonSchema } from "./providers/schema.ts";
 
 export interface DefineToolOptions<TInput = any, TOutput = any> {
   /**
@@ -58,6 +58,8 @@ export function defineTool<TInput = any, TOutput = any>(
   if (!options.input) {
     throw new ConfigurationError(`Tool '${sanitizedName}' must specify an 'input' schema (Zod schema)`);
   }
+
+  assertZod3(options.input, `Tool '${sanitizedName}' input schema`);
 
   if (typeof options.execute !== "function") {
     throw new ConfigurationError(`Tool '${sanitizedName}' must have an 'execute' function`);
